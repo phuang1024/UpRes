@@ -115,6 +115,11 @@ def save(path, model, losses):
     else:
         num = max(map(int, os.listdir(path))) + 1
 
+    # Make symlink to latest
+    if os.path.exists(os.path.join(path, "latest")):
+        os.remove(os.path.join(path, "latest"))
+    os.symlink(f"{num:03d}", os.path.join(path, "latest"))
+
     path = os.path.join(path, f"{num:03d}")
     os.makedirs(path)
 
@@ -122,6 +127,10 @@ def save(path, model, losses):
 
     plt.plot(losses)
     plt.savefig(os.path.join(path, "losses.png"))
+
+    with open(os.path.join(path, "losses.txt"), "w") as f:
+        for loss in losses:
+            f.write(f"{loss:.4f}\n")
 
 
 def main():
