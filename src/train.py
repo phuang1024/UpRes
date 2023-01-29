@@ -64,7 +64,10 @@ def show_samples(dataset):
     plt.show()
 
 
-def train(generator, disc, train_data, test_data, epochs=10, bs=4):
+def train(generator, disc, train_data, test_data, epochs=10, bs=1, disc_interval=20):
+    """
+    :param disc_interval: Number of generator iterations to each disc iter.
+    """
     loader_args = {
         "batch_size": bs,
         "shuffle": True,
@@ -86,11 +89,13 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=4):
         disc.train()
         total_gen_loss = 0
         total_disc_loss = 0
+
+        running_disc_loss = 0
+        running_disc_iters = 0
         for i, batch in enumerate(train_loader):
             batch = batch.to(device)
 
             # Train disc on real
-            optim_d.zero_grad()
             pred = disc(batch)
             truth = torch.ones_like(pred)
             disc_loss = criteria(pred, truth)
@@ -101,10 +106,18 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=4):
             truth = torch.zeros_like(pred)
             pred = disc(fake.detach())
             disc_loss = (disc_loss+criteria(pred, truth)) / 2
-            disc_loss.backward()
             total_disc_loss += disc_loss.item()
 
-            optim_d.step()
+            # Update disc once every iters.
+            running_disc_loss += disc_loss
+            running_disc_iters += 1
+            if running_disc_iters >= disc_interval:
+                running_disc_loss /= running_disc_iters
+                running_disc_loss.backward()
+                optim_d.step()
+                running_disc_loss = 0
+                running_disc_iters = 0
+                optim_d.zero_grad()
 
             # Train generator
             optim_g.zero_grad()
