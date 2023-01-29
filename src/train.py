@@ -11,7 +11,7 @@ from torch.nn import functional as F
 from torchvision import transforms as T
 
 from constants import *
-from network import UpresNet
+from network import UpresNet, Discriminator
 
 
 class ImageDataset(Dataset):
@@ -64,7 +64,7 @@ def show_samples(dataset):
     plt.show()
 
 
-def train(model, train_data, test_data, epochs=10, bs=8):
+def train(generator, disc, train_data, test_data, epochs=10, bs=8):
     loader_args = {
         "batch_size": bs,
         "shuffle": True,
@@ -73,47 +73,86 @@ def train(model, train_data, test_data, epochs=10, bs=8):
     train_loader = DataLoader(train_data, **loader_args)
     test_loader = DataLoader(test_data, **loader_args)
 
-    criteria = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criteria = torch.nn.BCEWithLogitsLoss()
+    optim_g = torch.optim.Adam(generator.parameters(), lr=1e-3)
+    optim_d = torch.optim.Adam(disc.parameters(), lr=1e-3)
 
     losses = []
+    # Proportion of generator wins.
+    accuracies = []
     for epoch in (pbar := trange(epochs)):
         pbar.set_description("Training")
-        model.train()
+        generator.train()
+        disc.train()
+        gen_loss = 0
+        disc_loss = 0
         for i, batch in enumerate(train_loader):
-            truth = batch.to(device)
-            lowres = F.interpolate(truth, size=IN_SIZE, mode="bicubic", align_corners=False)
-            pred = model(lowres)
+            batch = batch.to(device)
 
-            loss = criteria(truth, pred)
+            # Train disc on real
+            optim_d.zero_grad()
+            pred = disc(batch)
+            truth = torch.ones_like(pred)
+            loss = criteria(pred, truth)
             loss.backward()
+            curr_loss = loss.item()
 
-            optimizer.step()
-            optimizer.zero_grad()
+            # Train disc on fake
+            lowres = F.interpolate(batch, size=IN_SIZE, mode="bicubic", align_corners=False)
+            fake = generator(lowres)
+            truth = torch.zeros_like(pred)
+            pred = disc(fake.detach())
+            loss = criteria(pred, truth)
+            loss.backward()
+            curr_loss = (curr_loss + loss.item()) / 2
+            disc_loss += curr_loss
 
-            pbar.set_description(f"Epoch {epoch+1}/{epochs} | Batch {i}/{len(train_loader)} | Loss {loss.item():.4f}")
+            optim_d.step()
+
+            # Train generator
+            optim_g.zero_grad()
+            fake = generator(lowres)
+            pred = disc(fake)
+            truth = torch.ones_like(pred)
+            loss = criteria(pred, truth)
+            loss.backward()
+            optim_g.step()
+            gen_loss += loss.item()
+
+            pbar.set_description(f"Epoch {epoch+1}/{epochs} | Batch {i}/{len(train_loader)} | LossG {gen_loss:.4f} | LossD {disc_loss:.4f}")
+
+        gen_loss /= len(train_loader)
+        disc_loss /= len(train_loader)
+        losses.append((gen_loss, disc_loss))
 
         pbar.set_description("Testing")
-        model.eval()
+        generator.eval()
+        disc.eval()
         with torch.no_grad():
-            running_total = 0
+            gen_win = 0
+            total = 0
             for i, batch in enumerate(test_loader):
-                truth = batch.to(device)
-                lowres = F.interpolate(truth, size=IN_SIZE, mode="bicubic", align_corners=False)
-                pred = model(lowres)
+                batch = batch.to(device)
+                lowres = F.interpolate(batch, size=IN_SIZE, mode="bicubic", align_corners=False)
+                fake = generator(lowres)
+                pred = disc(fake)
 
-                loss = criteria(truth, pred)
-                running_total += loss.item()
-            losses.append(running_total / len(test_loader))
+                gen_win += (pred > 0.5).sum().item()
+                total += pred.numel()
 
-    return losses
+            accuracies.append(gen_win / total)
+
+    return losses, accuracies
 
 
-def save(path, model, losses):
+def save(path, generator, disc, losses, accuracies):
     if len(os.listdir(path)) == 0:
         num = 0
     else:
-        num = max(map(int, os.listdir(path))) + 1
+        num = 0
+        for f in os.listdir(path):
+            if f.isdigit():
+                num = max(num, int(f) + 1)
 
     # Make symlink to latest
     if os.path.exists(os.path.join(path, "latest")):
@@ -123,14 +162,23 @@ def save(path, model, losses):
     path = os.path.join(path, f"{num:03d}")
     os.makedirs(path)
 
-    torch.save(model.state_dict(), os.path.join(path, "model.pt"))
+    torch.save(generator.state_dict(), os.path.join(path, "gen.pt"))
+    torch.save(disc.state_dict(), os.path.join(path, "disc.pt"))
 
+    plt.cla()
     plt.plot(losses)
     plt.savefig(os.path.join(path, "losses.png"))
+    plt.cla()
+    plt.plot(accuracies)
+    plt.savefig(os.path.join(path, "accuracies.png"))
 
     with open(os.path.join(path, "losses.txt"), "w") as f:
         for loss in losses:
-            f.write(f"{loss:.4f}\n")
+            f.write(f"{loss[0]:.4f} {loss[1]:.4f}\n")
+
+    with open(os.path.join(path, "accuracies.txt"), "w") as f:
+        for acc in accuracies:
+            f.write(f"{acc:.4f}\n")
 
 
 def main():
@@ -146,10 +194,11 @@ def main():
     test_len = len(dataset)-train_len
     train_data, test_data = random_split(dataset, [train_len, test_len])
 
-    model = UpresNet().to(device)
-    losses = train(model, train_data, test_data, epochs=args.epochs)
+    generator = UpresNet().to(device)
+    disc = Discriminator().to(device)
+    losses, accuracies = train(generator, disc, train_data, test_data, epochs=args.epochs)
 
-    save(args.results, model, losses)
+    save(args.results, generator, disc, losses, accuracies)
 
 
 if __name__ == "__main__":

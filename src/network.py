@@ -6,7 +6,7 @@ from constants import *
 
 class Conv(Module):
     """
-    Convolution and some stuff.
+    Convolution and relu
     """
 
     def __init__(self, in_channels, out_channels, kernel_size=3):
@@ -16,6 +16,26 @@ class Conv(Module):
 
     def forward(self, x):
         x = self.conv(x)
+        x = self.relu(x)
+        return x
+
+
+class ConvPooling(Module):
+    """
+    Convolution, batch norm, pooling, and relu.
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size=3):
+        super().__init__()
+        self.conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, padding=kernel_size//2)
+        self.bn = torch.nn.BatchNorm2d(out_channels)
+        self.pool = torch.nn.MaxPool2d(2)
+        self.relu = torch.nn.LeakyReLU()
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.pool(x)
         x = self.relu(x)
         return x
 
@@ -114,4 +134,31 @@ class UpresNet(Module):
         x = self.upsamp(x)
         x = self.conv_out(x)
         x = self.sigmoid(x)
+        return x
+
+
+class Discriminator(Module):
+    """
+    Discriminator.
+    Output 0 = fake, 1 = real
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        self.conv = torch.nn.Sequential(
+            ConvPooling(3, 8),
+            ConvPooling(8, 16),
+            ConvPooling(16, 32),
+        )
+        # TODO
+        head_size = 257280  #32 * OUT_SIZE[0] * OUT_SIZE[1] // 2 ** (2*3)
+        self.head = torch.nn.Sequential(
+            torch.nn.Linear(head_size, 1),
+        )
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = x.view(x.size(0), -1)
+        x = self.head(x)
         return x
