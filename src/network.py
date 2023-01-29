@@ -6,16 +6,18 @@ from constants import *
 
 class Conv(Module):
     """
-    Convolution and relu
+    Convolution, batch norm, and relu.
     """
 
     def __init__(self, in_channels, out_channels, kernel_size=3):
         super().__init__()
         self.conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, padding=kernel_size//2)
+        self.bn = torch.nn.BatchNorm2d(out_channels)
         self.relu = torch.nn.LeakyReLU()
 
     def forward(self, x):
         x = self.conv(x)
+        x = self.bn(x)
         x = self.relu(x)
         return x
 
@@ -116,8 +118,10 @@ class UpresNet(Module):
         # Use number of layers to control scale factor.
         self.upsamp = torch.nn.Sequential(
             torch.nn.ConvTranspose2d(64, 32, 4, 2, 1),
+            torch.nn.BatchNorm2d(32),
             torch.nn.LeakyReLU(),
             torch.nn.ConvTranspose2d(32, 16, 4, 2, 1),
+            torch.nn.BatchNorm2d(16),
             torch.nn.LeakyReLU(),
         )
 

@@ -64,7 +64,7 @@ def show_samples(dataset):
     plt.show()
 
 
-def train(generator, disc, train_data, test_data, epochs=10, bs=8):
+def train(generator, disc, train_data, test_data, epochs=10, bs=4):
     loader_args = {
         "batch_size": bs,
         "shuffle": True,
@@ -84,8 +84,8 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8):
         pbar.set_description("Training")
         generator.train()
         disc.train()
-        gen_loss = 0
-        disc_loss = 0
+        total_gen_loss = 0
+        total_disc_loss = 0
         for i, batch in enumerate(train_loader):
             batch = batch.to(device)
 
@@ -93,19 +93,16 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8):
             optim_d.zero_grad()
             pred = disc(batch)
             truth = torch.ones_like(pred)
-            loss = criteria(pred, truth)
-            loss.backward()
-            curr_loss = loss.item()
+            disc_loss = criteria(pred, truth)
 
             # Train disc on fake
             lowres = F.interpolate(batch, size=IN_SIZE, mode="bicubic", align_corners=False)
             fake = generator(lowres)
             truth = torch.zeros_like(pred)
             pred = disc(fake.detach())
-            loss = criteria(pred, truth)
-            loss.backward()
-            curr_loss = (curr_loss + loss.item()) / 2
-            disc_loss += curr_loss
+            disc_loss = (disc_loss+criteria(pred, truth)) / 2
+            disc_loss.backward()
+            total_disc_loss += disc_loss.item()
 
             optim_d.step()
 
@@ -114,16 +111,16 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8):
             fake = generator(lowres)
             pred = disc(fake)
             truth = torch.ones_like(pred)
-            loss = criteria(pred, truth)
-            loss.backward()
+            gen_loss = criteria(pred, truth)
+            gen_loss.backward()
             optim_g.step()
-            gen_loss += loss.item()
+            total_gen_loss += gen_loss.item()
 
-            pbar.set_description(f"Epoch {epoch+1}/{epochs} | Batch {i}/{len(train_loader)} | LossG {gen_loss:.4f} | LossD {disc_loss:.4f}")
+            pbar.set_description(f"Epoch {epoch+1}/{epochs} | Batch {i}/{len(train_loader)} | LossG {gen_loss.item():.4f} | LossD {disc_loss:.4f}")
 
-        gen_loss /= len(train_loader)
-        disc_loss /= len(train_loader)
-        losses.append((gen_loss, disc_loss))
+        total_gen_loss /= len(train_loader)
+        total_disc_loss /= len(train_loader)
+        losses.append((total_gen_loss, total_disc_loss))
 
         pbar.set_description("Testing")
         generator.eval()
@@ -186,6 +183,7 @@ def main():
     parser.add_argument("--data", type=str, default="data")
     parser.add_argument("--results", type=str, default="results")
     parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--resume", help="Path to folder containing gen.pt and disc.pt", default="")
     args = parser.parse_args()
 
     dataset = ImageDataset(args.data)
@@ -196,6 +194,10 @@ def main():
 
     generator = UpresNet().to(device)
     disc = Discriminator().to(device)
+    if os.path.exists(args.resume):
+        print("Resuming from", args.resume)
+        generator.load_state_dict(torch.load(os.path.join(args.resume, "gen.pt")))
+        disc.load_state_dict(torch.load(os.path.join(args.resume, "disc.pt")))
     losses, accuracies = train(generator, disc, train_data, test_data, epochs=args.epochs)
 
     save(args.results, generator, disc, losses, accuracies)
