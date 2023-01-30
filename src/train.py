@@ -33,7 +33,7 @@ class ImageDataset(Dataset):
         ])
 
     def __len__(self):
-        return len(self.files)
+        return 2 #len(self.files)
 
     def __getitem__(self, idx):
         f = self.files[idx]
@@ -64,7 +64,7 @@ def show_samples(dataset):
     plt.show()
 
 
-def train(generator, disc, train_data, test_data, epochs=10, bs=1, disc_interval=20):
+def train(generator, disc, train_data, test_data, epochs=10, bs=4, disc_interval=1):
     """
     :param disc_interval: Number of generator iterations to each disc iter.
     """
@@ -87,6 +87,8 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=1, disc_interval
         pbar.set_description("Training")
         generator.train()
         disc.train()
+        optim_g.zero_grad()
+        optim_d.zero_grad()
         total_gen_loss = 0
         total_disc_loss = 0
 
@@ -124,7 +126,8 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=1, disc_interval
             fake = generator(lowres)
             pred = disc(fake)
             truth = torch.ones_like(pred)
-            gen_loss = criteria(pred, truth)
+            #gen_loss = criteria(pred, truth)
+            gen_loss = torch.nn.functional.mse_loss(fake, batch)
             gen_loss.backward()
             optim_g.step()
             total_gen_loss += gen_loss.item()

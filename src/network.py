@@ -151,18 +151,20 @@ class Discriminator(Module):
         super().__init__()
 
         self.conv = torch.nn.Sequential(
-            ConvPooling(3, 8),
-            ConvPooling(8, 16),
-            ConvPooling(16, 32),
+            ConvPooling(3, 8, 5),
+            ConvPooling(8, 16, 5),
+            ConvPooling(16, 32, 5),
+            ConvPooling(32, 64, 5),
+            ConvPooling(64, 32, 5),
+            ConvPooling(32, 16, 5),
+            ConvPooling(16, 8, 5),
+            ConvPooling(8, 4, 5),
         )
-        # TODO
-        head_size = 257280  #32 * OUT_SIZE[0] * OUT_SIZE[1] // 2 ** (2*3)
-        self.head = torch.nn.Sequential(
-            torch.nn.Linear(head_size, 1),
-        )
+        self.head = Conv(4, 1, 4)
+        self.sigmoid = torch.nn.Sigmoid()
 
     def forward(self, x):
         x = self.conv(x)
-        x = x.view(x.size(0), -1)
         x = self.head(x)
+        x = self.sigmoid(x)
         return x
