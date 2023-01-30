@@ -65,6 +65,15 @@ def show_samples(dataset):
     plt.show()
 
 
+def init_weights(m):
+    name = m.__class__.__name__
+    if name.find("Conv2d") != -1:
+        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif name.find("BatchNorm") != -1:
+        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+        torch.nn.init.constant_(m.bias.data, 0)
+
+
 def train(generator, disc, train_data, test_data, epochs=10, bs=8):
     """
     :param disc_interval: Number of generator iterations to each disc iter.
@@ -117,8 +126,8 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8):
             total_disc_loss += disc_loss.item()
 
             # Slow down discriminator training
-            if i % 2 == 0:
-                optim_d.step()
+            #if i % 2 == 0:
+            optim_d.step()
 
             # Train generator
             generator.zero_grad()
@@ -213,6 +222,11 @@ def main():
         print("Resuming from", args.resume)
         generator.load_state_dict(torch.load(os.path.join(args.resume, "gen.pt")))
         disc.load_state_dict(torch.load(os.path.join(args.resume, "disc.pt")))
+    else:
+        print("Starting from scratch")
+        generator.apply(init_weights)
+        disc.apply(init_weights)
+
     losses, accuracies = train(generator, disc, train_data, test_data, epochs=args.epochs)
 
     save(args.results, generator, disc, losses, accuracies)
