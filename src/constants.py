@@ -3,7 +3,7 @@ import torch
 
 SCALE_FAC = 4
 # Output
-OUT_SIZE = (540, 960)
+OUT_SIZE = (256, 256)
 # Input
 IN_SIZE = (OUT_SIZE[0]//SCALE_FAC, OUT_SIZE[1]//SCALE_FAC)
 

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from tqdm import trange
 
 import torch
+import torchvision
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn import functional as F
 from torchvision import transforms as T
@@ -33,7 +34,7 @@ class ImageDataset(Dataset):
         ])
 
     def __len__(self):
-        return 2 #len(self.files)
+        return len(self.files)
 
     def __getitem__(self, idx):
         f = self.files[idx]
@@ -64,7 +65,7 @@ def show_samples(dataset):
     plt.show()
 
 
-def train(generator, disc, train_data, test_data, epochs=10, bs=4, disc_interval=1):
+def train(generator, disc, train_data, test_data, epochs=10, bs=8):
     """
     :param disc_interval: Number of generator iterations to each disc iter.
     """
@@ -76,7 +77,7 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=4, disc_interval
     train_loader = DataLoader(train_data, **loader_args)
     test_loader = DataLoader(test_data, **loader_args)
 
-    criteria = torch.nn.BCEWithLogitsLoss()
+    criteria = torch.nn.BCELoss()
     optim_g = torch.optim.Adam(generator.parameters(), lr=1e-3)
     optim_d = torch.optim.Adam(disc.parameters(), lr=1e-3)
 
@@ -92,47 +93,45 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=4, disc_interval
         total_gen_loss = 0
         total_disc_loss = 0
 
-        running_disc_loss = 0
-        running_disc_iters = 0
         for i, batch in enumerate(train_loader):
             batch = batch.to(device)
 
+            disc.zero_grad()
+
             # Train disc on real
-            pred = disc(batch)
-            truth = torch.ones_like(pred)
+            pred = disc(batch).view(-1)
+            truth = torch.ones((batch.size(0),), device=device)
             disc_loss = criteria(pred, truth)
+            disc_loss.backward()
+            curr_disc_loss = disc_loss.item()
+            total_disc_loss += disc_loss.item()
 
             # Train disc on fake
             lowres = F.interpolate(batch, size=IN_SIZE, mode="bicubic", align_corners=False)
             fake = generator(lowres)
-            truth = torch.zeros_like(pred)
-            pred = disc(fake.detach())
-            disc_loss = (disc_loss+criteria(pred, truth)) / 2
+            truth = torch.zeros((batch.size(0),), device=device)
+            pred = disc(fake.detach()).view(-1)
+            disc_loss = criteria(pred, truth)
+            disc_loss.backward()
+            curr_disc_loss += disc_loss.item()
             total_disc_loss += disc_loss.item()
 
-            # Update disc once every iters.
-            running_disc_loss += disc_loss
-            running_disc_iters += 1
-            if running_disc_iters >= disc_interval:
-                running_disc_loss /= running_disc_iters
-                running_disc_loss.backward()
+            # Slow down discriminator training
+            if i % 2 == 0:
                 optim_d.step()
-                running_disc_loss = 0
-                running_disc_iters = 0
-                optim_d.zero_grad()
 
             # Train generator
-            optim_g.zero_grad()
+            generator.zero_grad()
             fake = generator(lowres)
-            pred = disc(fake)
-            truth = torch.ones_like(pred)
-            #gen_loss = criteria(pred, truth)
-            gen_loss = torch.nn.functional.mse_loss(fake, batch)
+            pred = disc(fake).view(-1)
+            truth = torch.ones((batch.size(0),), device=device)
+            gen_loss = criteria(pred, truth)
+            #gen_loss = F.mse_loss(fake, batch)
             gen_loss.backward()
             optim_g.step()
             total_gen_loss += gen_loss.item()
 
-            pbar.set_description(f"Epoch {epoch+1}/{epochs} | Batch {i}/{len(train_loader)} | LossG {gen_loss.item():.4f} | LossD {disc_loss:.4f}")
+            pbar.set_description(f"Epoch {epoch+1}/{epochs} | Batch {i}/{len(train_loader)} | LossG {gen_loss.item():.4f} | LossD {curr_disc_loss:.4f}")
 
         total_gen_loss /= len(train_loader)
         total_disc_loss /= len(train_loader)
