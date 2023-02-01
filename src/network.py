@@ -172,13 +172,13 @@ class Discriminator(Module):
 
         self.conv = torch.nn.Sequential(
             Conv(3, 8, 4, 2, 1),
-            Conv(8, 16, 4, 2, 1),
-            Conv(16, 32, 4, 2, 1),
-            Conv(32, 64, 4, 2, 1),
-            Conv(64, 128, 4, 2, 1),
-            Conv(128, 256, 4, 2, 1),
+            #Conv(8, 16, 4, 2, 1),
+            #Conv(16, 32, 4, 2, 1),
+            #Conv(32, 64, 4, 2, 1),
+            #Conv(64, 128, 4, 2, 1),
+            #Conv(128, 256, 4, 2, 1),
         )
-        self.head = torch.nn.Linear(256*4*4, 1)
+        self.head = torch.nn.Linear(8*128*128, 1)
         #self.sigmoid = torch.nn.Sigmoid()
 
     def forward(self, x):

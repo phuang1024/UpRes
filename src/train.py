@@ -73,7 +73,7 @@ def init_weights(m):
         torch.nn.init.constant_(m.bias.data, 0)
 
 
-def train(generator, disc, train_data, test_data, epochs=10, bs=8, disc_interval=16, gen_interval=16):
+def train(generator, disc, train_data, test_data, epochs=10, bs=16, disc_interval=8, gen_interval=8):
     loader_args = {
         "batch_size": bs,
         "shuffle": True,
@@ -97,7 +97,7 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8, disc_interval
         optim_g.zero_grad()
         optim_d.zero_grad()
         for i, batch in enumerate(train_loader):
-            batch = batch.to(device)
+            batch = batch.to(device).half()
             lowres = F.interpolate(batch, size=IN_SIZE, mode="bicubic", align_corners=False)
 
             disc.train()
@@ -216,8 +216,8 @@ def main():
     test_len = len(dataset)-train_len
     train_data, test_data = random_split(dataset, [train_len, test_len])
 
-    generator = UpresNet().to(device)
-    disc = Discriminator().to(device)
+    generator = UpresNet().to(device).half()
+    disc = Discriminator().to(device).half()
     if os.path.exists(args.resume):
         print("Resuming from", args.resume)
         generator.load_state_dict(torch.load(os.path.join(args.resume, "gen.pt")))
