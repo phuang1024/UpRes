@@ -44,8 +44,7 @@ class ImageDataset(Dataset):
         except cv2.error:
             print(f)
             raise
-        img = torch.from_numpy(img).permute(2, 0, 1).float()
-        img = img / 255.0
+        img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
 
         if self.augment:
             img = self.augmentation(img)
@@ -74,10 +73,7 @@ def init_weights(m):
         torch.nn.init.constant_(m.bias.data, 0)
 
 
-def train(generator, disc, train_data, test_data, epochs=10, bs=8):
-    """
-    :param disc_interval: Number of generator iterations to each disc iter.
-    """
+def train(generator, disc, train_data, test_data, epochs=10, bs=8, disc_interval=16, gen_interval=16):
     loader_args = {
         "batch_size": bs,
         "shuffle": True,
@@ -86,26 +82,26 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8):
     train_loader = DataLoader(train_data, **loader_args)
     test_loader = DataLoader(test_data, **loader_args)
 
-    criteria = torch.nn.BCELoss()
-    optim_g = torch.optim.Adam(generator.parameters(), lr=1e-3)
-    optim_d = torch.optim.Adam(disc.parameters(), lr=1e-3)
+    criteria = torch.nn.BCEWithLogitsLoss()
+    optim_g = torch.optim.Adam(generator.parameters(), lr=1e-3, betas=(0.5, 0.999))
+    optim_d = torch.optim.Adam(disc.parameters(), lr=1e-3, betas=(0.5, 0.999))
 
     losses = []
     # Proportion of generator wins.
     accuracies = []
     for epoch in (pbar := trange(epochs)):
         pbar.set_description("Training")
-        generator.train()
-        disc.train()
-        optim_g.zero_grad()
-        optim_d.zero_grad()
         total_gen_loss = 0
         total_disc_loss = 0
 
+        optim_g.zero_grad()
+        optim_d.zero_grad()
         for i, batch in enumerate(train_loader):
             batch = batch.to(device)
+            lowres = F.interpolate(batch, size=IN_SIZE, mode="bicubic", align_corners=False)
 
-            disc.zero_grad()
+            disc.train()
+            generator.eval()
 
             # Train disc on real
             pred = disc(batch).view(-1)
@@ -116,7 +112,6 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8):
             total_disc_loss += disc_loss.item()
 
             # Train disc on fake
-            lowres = F.interpolate(batch, size=IN_SIZE, mode="bicubic", align_corners=False)
             fake = generator(lowres)
             truth = torch.zeros((batch.size(0),), device=device)
             pred = disc(fake.detach()).view(-1)
@@ -125,20 +120,25 @@ def train(generator, disc, train_data, test_data, epochs=10, bs=8):
             curr_disc_loss += disc_loss.item()
             total_disc_loss += disc_loss.item()
 
-            # Slow down discriminator training
-            #if i % 2 == 0:
-            optim_d.step()
+            if i % disc_interval == 0:
+                optim_d.step()
+                optim_d.zero_grad()
 
             # Train generator
-            generator.zero_grad()
+            generator.train()
+            disc.eval()
+
             fake = generator(lowres)
             pred = disc(fake).view(-1)
             truth = torch.ones((batch.size(0),), device=device)
             gen_loss = criteria(pred, truth)
             #gen_loss = F.mse_loss(fake, batch)
             gen_loss.backward()
-            optim_g.step()
             total_gen_loss += gen_loss.item()
+
+            if i % gen_interval == 0:
+                optim_g.step()
+                optim_g.zero_grad()
 
             pbar.set_description(f"Epoch {epoch+1}/{epochs} | Batch {i}/{len(train_loader)} | LossG {gen_loss.item():.4f} | LossD {curr_disc_loss:.4f}")
 

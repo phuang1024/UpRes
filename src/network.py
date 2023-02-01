@@ -1,5 +1,5 @@
 import torch
-from torch.nn import Module
+from torch.nn import Module, BatchNorm2d
 
 from constants import *
 
@@ -13,7 +13,7 @@ class Conv(Module):
         super().__init__()
         padding = padding if padding is not None else kernel_size//2
         self.conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, stride=stride)
-        self.bn = torch.nn.BatchNorm2d(out_channels)
+        self.bn = BatchNorm2d(out_channels)
         self.relu = torch.nn.LeakyReLU()
 
     def forward(self, x):
@@ -32,7 +32,7 @@ class ConvTranspose(Module):
         super().__init__()
         padding = padding if padding is not None else kernel_size//2
         self.conv = torch.nn.ConvTranspose2d(in_channels, out_channels, kernel_size, padding=padding, stride=stride)
-        self.bn = torch.nn.BatchNorm2d(out_channels)
+        self.bn = BatchNorm2d(out_channels)
         self.relu = torch.nn.LeakyReLU()
 
     def forward(self, x):
@@ -50,7 +50,7 @@ class ConvPooling(Module):
     def __init__(self, in_channels, out_channels, kernel_size=3):
         super().__init__()
         self.conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, padding=kernel_size//2)
-        self.bn = torch.nn.BatchNorm2d(out_channels)
+        self.bn = BatchNorm2d(out_channels)
         self.pool = torch.nn.AvgPool2d(2)
         self.relu = torch.nn.LeakyReLU()
 
@@ -139,6 +139,7 @@ class UpresNet(Module):
         self.upsamp = torch.nn.Sequential(
             ConvTranspose(256, 128, 4, 2, 1),
             ConvTranspose(128, 64, 4, 2, 1),
+            torch.nn.BatchNorm2d(64),
         )
 
         self.conv_out = torch.nn.Sequential(
@@ -170,19 +171,19 @@ class Discriminator(Module):
         super().__init__()
 
         self.conv = torch.nn.Sequential(
-            Conv(3, 4, 4, 2, 1),
-            Conv(4, 8, 4, 2, 1),
+            Conv(3, 8, 4, 2, 1),
             Conv(8, 16, 4, 2, 1),
             Conv(16, 32, 4, 2, 1),
             Conv(32, 64, 4, 2, 1),
-            Conv(64, 128, 3),
-            Conv(128, 256, 3),
+            Conv(64, 128, 4, 2, 1),
+            Conv(128, 256, 4, 2, 1),
         )
-        self.head = torch.nn.Conv2d(256, 1, 8, 1, 0)
-        self.sigmoid = torch.nn.Sigmoid()
+        self.head = torch.nn.Linear(256*4*4, 1)
+        #self.sigmoid = torch.nn.Sigmoid()
 
     def forward(self, x):
         x = self.conv(x)
+        x = x.view(x.size(0), -1)
         x = self.head(x)
-        x = self.sigmoid(x)
+        #x = self.sigmoid(x)
         return x

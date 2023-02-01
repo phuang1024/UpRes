@@ -21,6 +21,7 @@ def main():
 
     model = UpresNet()
     model.load_state_dict(torch.load(args.model))
+    model.eval()
     x = torch.from_numpy(image).permute(2, 0, 1).float().unsqueeze(0) / 255.0
     y = model(x)
 
